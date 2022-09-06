@@ -1,0 +1,13 @@
+{
+  "name": "@vue/shared",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "buildOptions": {
+    "name": "VueReactivity",
+    "formats": [
+      "global",
+      "cjs"
+    ]
+  }
+}

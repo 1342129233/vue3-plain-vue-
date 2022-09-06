@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+<!-- <script src="../../../node_modules/@vue/reactivity/dist/reactivity.global.js"></script> -->
+<script src="./reactivity.global.js"></script>
+<div id="app"></div>
+<script>
+    const { effect, reactive, watch } = VueReactivity;
+    const state = reactive({name: 'zf', age: 13, address: { num: 517 }});
+
+    // 当用户向输入框中输入内入的时候,我们要根据用户输入的内容 返回 axios 结果
+    // watch 输入框的内容 输入框的内容发生变化就访问接口，渲染页面?
+
+    
+    // 监控对象无法区分前后的新值和老值
+    // 1. 这种方式就是监控数据变化，数据变化了就重新执行
+    // 2. 这里可以去监控一个函数,函数的返回值就是老值，更新后获取新值
+    // onCleanup 回调, 用于下一次 watch 的触发上一次的 watch 清理
+    watch(() => state.address.num, function(newValue, oldValue, onCleanup) {
+        clear = false;
+        onCleanup(() => {
+            clear = true;
+        })
+        console.log(newValue, oldValue);
+    }, {flush: 'sync'})
+
+    setTimeout(() => {
+        state.address.num = 123
+        state.address.num = 999
+    }, 1000);
+
+    // watch 的本质就是 effect,内部会对用户填写的数据进行依赖1
+</script>
+</body>
+</html>
