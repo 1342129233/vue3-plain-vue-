@@ -2,6 +2,20 @@ import { isArray, isObject } from "@vue/shared";
 import { reactive } from "./reactive";
 import { trackEffect, triggerEffect } from './effect';
 
+declare const RefSymbol: unique symbol
+export interface Ref<T = any> {
+    /**
+     * Type differentiator only.
+     * We need this to be in public d.ts but don't want it to show up in IDE
+     * autocomplete, so we use a private Symbol instead.
+     */
+    [RefSymbol]: true
+    value: T
+  }
+export function isRef(r: any): r is Ref {
+    return Boolean(r && r.__v_isRef === true)
+}
+
 // 是对象的话变成 reactive
 function toReactive(value) {
     return isObject(value) ? reactive(value) : value;

@@ -1,6 +1,7 @@
 import { isObject } from "@vue/shared"
 import { mutableHandlers, ReactiveFlags } from './baseHandler';
 
+
 const reactiveMap = new WeakMap(); // key 只能是对象
 
 /**
@@ -16,7 +17,7 @@ export function isReactive(value) {
 
 // 将数据转化成响应式
 export function reactive(target) {
-    
+
     if(!isObject(target)) {
         return
     }
@@ -26,6 +27,7 @@ export function reactive(target) {
     }
 
     let exisitingProxy = reactiveMap.get(target);
+    
     if(exisitingProxy) {
         return exisitingProxy;
     }
@@ -33,6 +35,14 @@ export function reactive(target) {
     const proxy = new Proxy(target, mutableHandlers)
     reactiveMap.set(target, proxy);
     return proxy
+}
+
+
+// 解除依赖
+export function toRaw<T>(observed: T): T {
+    return (
+      (observed && toRaw((observed)[ReactiveFlags.RAW])) || observed
+    )
 }
 
 

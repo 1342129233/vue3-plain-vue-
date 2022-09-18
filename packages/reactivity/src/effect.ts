@@ -1,4 +1,6 @@
+import { isArray } from '@vue/shared'
 export let activeEffect;
+
 
 function cleanupEffect(effect) {
     const { deps } = effect; // deps 里面装的是 key 对应的 effect
@@ -25,6 +27,7 @@ export class ReactiveEffect {
             cleanupEffect(this)
             return this.fn(); // 当稍后调用去值操作的时候就可以获取到这个全局的 activeEffect 了
         } finally {
+            resetTracking();// 数组处理
             activeEffect = this.parent;
         }
     }
@@ -50,9 +53,9 @@ export function effect(fn, options:any = {}) {
 
 const targetMap = new WeakMap();
 export function track(target, get, key) {
+    key = String(key)
     if(!activeEffect) return;
     let depsMap = targetMap.get(target);
-
     if(!depsMap) {
         targetMap.set(target, depsMap = new Map());
     }
@@ -77,7 +80,9 @@ export function trackEffect(dep) {
 export function trigger(target, set, key, value, oldValue) {
     const depsMap = targetMap.get(target);
     if(!depsMap) return;
-    let effects = depsMap.get(key); // 找到对应的 effect
+    // 数组的 key 是数字需要转一下
+    // let effects = isArray(target) ? depsMap.get(String(key)) : depsMap.get(key); // 找到对应的 effect 
+    let effects = depsMap.get(key);
 
     // 永远在执行之前拷贝一份来执行, 不要关联引用
     if(effects) {
@@ -97,4 +102,23 @@ export function triggerEffect(effects) {
             }
         }
     });
+}
+
+// 数组
+let shouldTrack = true
+const trackStack: boolean[] = []
+
+export function pauseTracking() {
+    trackStack.push(shouldTrack)
+    shouldTrack = false
+}
+
+export function enableTracking() {
+    trackStack.push(shouldTrack)
+    shouldTrack = true
+}
+
+export function resetTracking() {
+    const last = trackStack.pop()
+    shouldTrack = last === undefined ? true : last
 }

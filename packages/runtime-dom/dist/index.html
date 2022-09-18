@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+<div id="app"></div>
+<!-- <script src="../../../node_modules/@vue/runtime-dom/dist/runtime-dom.global.js"></script> -->
+<!-- <script src="../../../node_modules/@vue/runtime-core/dist/runtime-dom.global.js"></script> -->
+<script src="./runtime-dom.global.js"></script>
+<script>
+    let { createRenderer, h, render, Text } = VueRuntimeDOM
+    // 渲染的是虚拟DOM
+    // const renderer = createRenderer({
+        // createElement(element) {
+        //     return document.createElement(element)
+        // },
+        // setElementText(el, text) {
+        //     el.innerHTML = text
+        // },
+        // insert(el, container) {
+        //     container.appendChild(el)
+        // },
+        // patchProp(el, key,  prevValue, nextValue) {
+        //     console.log(el, key, prevValue, nextValue)
+        // }
+    // });
+
+    // render(h('h1', { style: { color: 'red' }, onClick: () => alert(123) }, [h('span', '456'), 123]), app)
+    // render(h(Text, '123'), app)
+    render(h('h1', { style: { color: 'red' } }, '11111'), app)
+    setTimeout(() => {
+        render(h('h1', { style: { color: 'blue', background: 'red' } }, '2222'), app)
+    }, 1000)
+</script>
+</body>
+</html>

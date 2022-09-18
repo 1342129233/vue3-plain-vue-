@@ -54,6 +54,7 @@ var VueReactivity = (() => {
         cleanupEffect(this);
         return this.fn();
       } finally {
+        resetTracking();
         activeEffect = this.parent;
       }
     }
@@ -73,6 +74,7 @@ var VueReactivity = (() => {
   }
   var targetMap = /* @__PURE__ */ new WeakMap();
   function track(target, get, key) {
+    key = String(key);
     if (!activeEffect)
       return;
     let depsMap = targetMap.get(target);
@@ -115,21 +117,82 @@ var VueReactivity = (() => {
       }
     });
   }
+  var shouldTrack = true;
+  var trackStack = [];
+  function pauseTracking() {
+    trackStack.push(shouldTrack);
+    shouldTrack = false;
+  }
+  function enableTracking() {
+    trackStack.push(shouldTrack);
+    shouldTrack = true;
+  }
+  function resetTracking() {
+    const last = trackStack.pop();
+    shouldTrack = last === void 0 ? true : last;
+  }
 
   // packages/shared/src/index.ts
   var isObject = (value) => {
     return typeof value === "object" && value !== null;
+  };
+  var isString = (value) => {
+    return typeof value === "string";
   };
   var isFunction = (value) => {
     return typeof value === "function";
   };
   var isArray = Array.isArray;
 
+  // packages/reactivity/src/ref.ts
+  function isRef(r) {
+    return Boolean(r && r.__v_isRef === true);
+  }
+  function toReactive(value) {
+    return isObject(value) ? reactive(value) : value;
+  }
+  var RefImpl = class {
+    constructor(rawValue) {
+      this.rawValue = rawValue;
+      this.dep = /* @__PURE__ */ new Set();
+      this._v_isRef = true;
+      this._value = toReactive(rawValue);
+    }
+    get value() {
+      triggerEffect(this.dep);
+      return this._value;
+    }
+    set value(newValue) {
+      if (newValue !== this.rawValue) {
+        this._value = toReactive(newValue);
+        this.rawValue = newValue;
+        trackEffect(this.dep);
+      }
+    }
+  };
+  function ref(value) {
+    return new RefImpl(value);
+  }
+
   // packages/reactivity/src/baseHandler.ts
+  var hasOwnProperty = Object.prototype.hasOwnProperty;
+  var hasOwn = (val, key) => {
+    return hasOwnProperty.call(val, key);
+  };
+  var isIntegerKey = (key) => {
+    return isString(key) && key !== "NaN" && key[0] !== "-" && "" + parseInt(key, 10) === key;
+  };
+  var hasChanged = (value, oldValue) => value !== oldValue && (value === value || oldValue === oldValue);
+  var arrayInstrumentations = {};
+  var shallow = false;
   var mutableHandlers = {
     get(target, key, receiver) {
       if (key === "__v_isReactive" /* IS_REACTIVE */) {
         return true;
+      }
+      const targetIsArray = isArray(target);
+      if (targetIsArray && hasOwn(arrayInstrumentations, key)) {
+        return Reflect.get(arrayInstrumentations, key, receiver);
       }
       track(target, "get", key);
       const res = Reflect.get(target, key, receiver);
@@ -139,14 +202,52 @@ var VueReactivity = (() => {
       return res;
     },
     set(target, key, value, receiver) {
+      if (["push", "pop", "shift", "unshift", "splice"].includes(key)) {
+        key = arrayInstrumentations[key](receiver, value);
+      }
       const oldValue = target[key];
+      if (!shallow) {
+        value = toRaw(value);
+        if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
+          oldValue.value = value;
+          return true;
+        }
+      } else {
+      }
+      const hadKey = isArray(target) && isIntegerKey(key) ? Number(key) < target.length : hasOwn(target, key);
       let result = Reflect.set(target, key, value, receiver);
-      if (value !== oldValue) {
+      if (!hadKey) {
+        trigger(target, "add" /* ADD */, key, value, oldValue);
+      } else if (hasChanged(value, oldValue)) {
         trigger(target, "set", key, value, oldValue);
       }
       return result;
     }
   };
+  ["push", "pop", "shift", "unshift", "splice"].forEach((key) => {
+    const method = Array.prototype[key];
+    arrayInstrumentations[key] = function(...args) {
+      pauseTracking();
+      const res = method.apply(this, args);
+      enableTracking();
+      return res;
+    };
+  });
+  ["includes", "indexOf", "lastIndexOf"].forEach((key) => {
+    const method = Array.prototype[key];
+    arrayInstrumentations[key] = function(...args) {
+      const arr = toRaw(this);
+      for (let i = 0, l = this.length; i < l; i++) {
+        track(arr, "get", i + "");
+      }
+      const res = method.apply(arr, args);
+      if (res === -1 || res === false) {
+        return method.apply(arr, args.map(toRaw));
+      } else {
+        return res;
+      }
+    };
+  });
 
   // packages/reactivity/src/reactive.ts
   var reactiveMap = /* @__PURE__ */ new WeakMap();
@@ -167,6 +268,9 @@ var VueReactivity = (() => {
     const proxy = new Proxy(target, mutableHandlers);
     reactiveMap.set(target, proxy);
     return proxy;
+  }
+  function toRaw(observed) {
+    return observed && toRaw(observed["__v_raw" /* RAW */]) || observed;
   }
 
   // packages/reactivity/src/computed.ts
@@ -248,33 +352,6 @@ var VueReactivity = (() => {
     };
     const effect2 = new ReactiveEffect(getter, job);
     oldValue = effect2.run();
-  }
-
-  // packages/reactivity/src/ref.ts
-  function toReactive(value) {
-    return isObject(value) ? reactive(value) : value;
-  }
-  var RefImpl = class {
-    constructor(rawValue) {
-      this.rawValue = rawValue;
-      this.dep = /* @__PURE__ */ new Set();
-      this._v_isRef = true;
-      this._value = toReactive(rawValue);
-    }
-    get value() {
-      triggerEffect(this.dep);
-      return this._value;
-    }
-    set value(newValue) {
-      if (newValue !== this.rawValue) {
-        this._value = toReactive(newValue);
-        this.rawValue = newValue;
-        trackEffect(this.dep);
-      }
-    }
-  };
-  function ref(value) {
-    return new RefImpl(value);
   }
   return __toCommonJS(src_exports);
 })();

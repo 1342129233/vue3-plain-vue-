@@ -11,17 +11,22 @@
 <script src="./reactivity.global.js"></script>
 <div id="app"></div>
 <script>
-    const { ref } = VueReactivity;
-    const state = ref({name: 'zf', age: 13});
+    const { ref, effect, reactive } = VueReactivity;
+    const state = ref([0, 2]);
+    // const list = reactive({
+    //     age: 20
+    // })
 
     
     effect(() => {
-        app.innerHTML = state.name + '今年' + state.age + '岁了'
-        console.log(state);
+        console.log('update');
+        app.innerHTML = state.value;
+        // app.innerHTML = list.age;
     });
     // 稍后 name 和 age 变化会重新执行 effect 函数
     setTimeout(() => {
-        state.age = 18
+        console.log('setTimeout')
+        state.value.push = 100;
     }, 1000)
 </script>
 </body>
