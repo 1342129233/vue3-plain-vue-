@@ -1,6 +1,7 @@
 
 import { isArray, isString, ShapeFlags, isNumber } from "@vue/shared";
-import { createVnode, Text, isSameVnode } from './vnode';
+import { getSequence } from './sequence';
+import { createVnode, Text, isSameVnode, Fragment } from './vnode';
 
 export function createRenderer(renderOptions) {
     let {
@@ -92,23 +93,25 @@ export function createRenderer(renderOptions) {
     };
     // 比较两个儿子的差异
     const patchKeyedChildren = (c1, c2, el) => {
+        // debugger;
         let i = 0;
-        let e1 = c1.length - 1;
-        let e2 = c2.length - 2;
+        let e1 = c1.length - 1; // 老的组件长度 2
+        let e2 = c2.length - 1; // 新的组件长度 3
 
         // 特殊处理......
-
+        // 从头部比较
         while(i <= e1 && i <= e2) { // 有任何一方停止循环则直接跳出
             const n1 = c1[i]
             const n2 = c2[i]
-            if(isSameVnode(n1, n2)) { // 比较
-                patch(n1, n2, el); // 比较两个节点的属性和子节点
+            if(isSameVnode(n1, n2)) { // 比较两个节点的属性和子节点 // 节点一样是 true
+                patch(n1, n2, el); // 创建新节点
             } else {
                 break;
             }
             i++;
         }
 
+        // 从尾部比较
         while(i <= e1 && i <= e2) {
             const n1 = c1[i];
             const n2 = c2[i];
@@ -123,25 +126,79 @@ export function createRenderer(renderOptions) {
 
         // i 要比 e1 大说明有新增的
         // i < e2 之间的是新增的部分
+
+        // 有一方全部比较完毕了,要么删除,要么添加
+        // 添加
         if(i > e1) {
             if(i <= e2) {
                 while(i <= e2) {
                     const nextPos = e2 + 1;
                     // 根据一个人的索引来看参照物
                     const anchor = nextPos < c2.lengtht ? c2[nextPos].el : null;
-                    patch(null, c2[i], el); // 创建新节点 扔到容器中
+                    patch(null, c2[i], el, anchor); // 创建新节点 扔到容器中
                     i++;
                 }
-            } else if(i > e2) {
-                if(i < e1) {
-                    while(i < e1) {
-                        unmount(c1[i]);
-                        i++;
-                    }
+            }
+        } else if(i > e2) {
+            // i 比 e2 大说明有要卸载的
+            // i 到 e1 之前就是要卸载的
+            if(i < e1) {
+                while(i < e1) {
+                    unmount(c1[i]);
+                    i++;
                 }
             }
         }
 
+        // i 比 e2 大说明有要卸载的
+        // i 比 e1 之间的就是要卸载的
+
+        // 优化
+        // 乱序对比
+        console.log(i, e1, e2);
+        let s1 = i;
+        let s2 = i;
+        const keyToNewIndexMap = new Map(); // key -> newIndex
+        for(let i = s2; i <= e2; i++) {
+            keyToNewIndexMap.set(c2[i].key, i)
+        }
+
+        // 循环老的元素 看一下新的里面有没有, 如果有说明要比较差异,没有要添加到列表中,老的有新的没有要删除
+        const toBePatched = e2 - s2 + 1; // 新的总个数
+        const newIndexToOldIndexMap = new Array(toBePatched).fill(0); // 记录是否比对过的映射表
+        // 新老属性的比对没有移动位置
+        for(let i = s1; i < e1; i++) {
+            const oldChild = c1[i]; // 老的孩子
+            const newIndex = keyToNewIndexMap.get(oldChild.key); // 用老的孩子去新的里面找
+            if(newIndex === undefined) {
+                unmount(oldChild); // 多余的删除
+            } else {
+                // 新的位置对应的老的位置, 如果数组里放的值 > 0 说明已经 patch 过了
+                newIndexToOldIndexMap[newIndex - s2] = i + 1; // 用来标记当前所 patch 过的结果
+                patch(oldChild, c2[newIndex], el); // 比较两个节点
+            }
+        }
+
+        // 获取最长递增子序列
+        let increment = getSequence(newIndexToOldIndexMap)
+
+        // 需要移动位置(倒叙插入)
+        let j = increment.length - 1;
+        for(let i = toBePatched - 1; i >= 0; i--) {
+            let index = i + s2;
+            let current = c2[index]; // 乱叙的最后一个
+            // 找参照物
+            let anchor = index + 1 < c2.length ? c2[index + 1].el : null;
+            if(newIndexToOldIndexMap[i] === 0) { // 0 表示创建  5 3 4 0
+                patch(null, current, el, anchor)
+            } else { // 不是0 说明是已经对比过属性和儿子的了
+                if(i !== increment[j]) {
+                    hostInsert(current.el, el, anchor); // 复用节点 
+                } {
+                    j--;
+                }
+            }
+        }
     }
     // 更新子元素
     const patchChildren = (n1, n2, el) => {
@@ -210,6 +267,14 @@ export function createRenderer(renderOptions) {
         }
     }
 
+    const processFragment = (n1, n2, container, anchor) => {
+        if(n1 == null) {
+            mountChildren(n2.children, container)
+        } else {
+            patchChildren(n1, n2, container); // 走的是 diff 
+        }
+    }
+
     // 核心方法
     const patch = (n1, n2, container, anchor = null) => {
         // 老节点和新节点一样，这个时候不需要更新
@@ -229,6 +294,9 @@ export function createRenderer(renderOptions) {
         switch(type) {
             case Text: 
                 processText(n1, n2, container);
+                break;
+            case Fragment: 
+                processFragment(n1, n2, container, anchor);
                 break;
             default: 
                 // 元素

@@ -144,7 +144,7 @@ var VueRuntimeDOM = (() => {
     const patchKeyedChildren = (c1, c2, el) => {
       let i = 0;
       let e1 = c1.length - 1;
-      let e2 = c2.length - 2;
+      let e2 = c2.length - 1;
       while (i <= e1 && i <= e2) {
         const n1 = c1[i];
         const n2 = c2[i];
@@ -171,15 +171,15 @@ var VueRuntimeDOM = (() => {
           while (i <= e2) {
             const nextPos = e2 + 1;
             const anchor = nextPos < c2.lengtht ? c2[nextPos].el : null;
-            patch(null, c2[i], el);
+            patch(null, c2[i], el, anchor);
             i++;
           }
-        } else if (i > e2) {
-          if (i < e1) {
-            while (i < e1) {
-              unmount(c1[i]);
-              i++;
-            }
+        }
+      } else if (i > e2) {
+        if (i < e1) {
+          while (i < e1) {
+            unmount(c1[i]);
+            i++;
           }
         }
       }
