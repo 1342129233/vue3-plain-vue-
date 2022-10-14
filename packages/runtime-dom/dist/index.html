@@ -13,42 +13,24 @@
 <script src="./runtime-dom.global.js"></script>
 <script>
     let { createRenderer, h, render, Text, Fragment } = VueRuntimeDOM
-    // 渲染的是虚拟DOM
-    // const renderer = createRenderer({
-        // createElement(element) {
-        //     return document.createElement(element)
-        // },
-        // setElementText(el, text) {
-        //     el.innerHTML = text
-        // },
-        // insert(el, container) {
-        //     container.appendChild(el)
-        // },
-        // patchProp(el, key,  prevValue, nextValue) {
-        //     console.log(el, key, prevValue, nextValue)
-        // }
-    // });
 
-    // render(h('h1', { style: { color: 'red' }, onClick: () => alert(123) }, [h('span', '456'), 123]), app)
-    // render(h(Text, '123'), app)
-    render(h(Fragment, [h(Text, 'hello'), h(Text, 'world')]), app)
-    render(h('h1', { style: { color: 'white' } }, [
-        h('h1', {key: 'a'}, 'a'),
-        h('h1', {key: 'b'}, 'b'),
-        h('h1', {key: 'c'}, 'c')
-    ]), app)
-    setTimeout(() => {
-        render(h('h1', { style: { color: 'blue', background: 'white' } }, [
-            h('h1', {key: 'd'}, 'd'),
-            h('h1', {key: 'e'}, 'e'),
-            h('h1', {key: 'b'}, 'b'),
-            h('h1', {key: 'h'}, 'h')
-            // h('h1', {key: 'a'}, 'a'),
-            // h('h1', {key: 'b'}, 'b'),
-            // h('h1', {key: 'c'}, 'c'),
-            // h('h1', {key: 'd'}, 'd'),
-        ]), app)
-    }, 1000)
+    const VueComponent = { // vue3 兼容 vue2， 简单的使用 optionsApi, 复杂的采用compositionApi
+        data() {
+            return {
+                name: '1',
+                age: 1
+            }
+        },
+        // template
+        render() { // render 函数需要返回虚拟节点,最终渲染的就是返回的虚拟节点
+            setTimeout(() => {
+                this.age
+            }, 1000);
+            return h('p', `${this.name} + ${this.age}`)
+        }
+    }
+
+    render(h(VueComponent), app)
 </script>
 </body>
 </html>

@@ -1,7 +1,9 @@
 
+import { reactive, ReactiveEffect } from "@vue/reactivity";
 import { isArray, isString, ShapeFlags, isNumber } from "@vue/shared";
 import { getSequence } from './sequence';
 import { createVnode, Text, isSameVnode, Fragment } from './vnode';
+import { queueJon } from './scheduler';
 
 export function createRenderer(renderOptions) {
     let {
@@ -274,6 +276,50 @@ export function createRenderer(renderOptions) {
             patchChildren(n1, n2, container); // 走的是 diff 
         }
     }
+    const mountComponent = (vnode, container, anchor) => {
+        let { data=()=>({}), render } = vnode.type; //  这个就是组件写的内容
+        const state = reactive(data()); // 源码就是 reactive({}), 作为组件的状态
+
+        const instance = { // 组件的实例
+            state, // 状态
+            vnode, // 虚拟节点
+            subTree: null, // vnodez组件的虚拟节点, 渲染的组件内容
+            isMounted: false,
+            update: null,
+            props: null,
+            slots: null,
+            attrs: null
+        }
+
+        const componenUpdateFn = () => { // 区分是初始化还是更新
+            if(!instance.isMounted) { // 初始化
+                const subTree = render.call(state); // 作为 this 后续 this 会改
+                // subTree 创建成真实节点
+                patch(null, subTree, container, anchor); // 创建了subTree 的真实节点
+                instance.subTree = subTree;
+                instance.isMounted = true;
+            } else{ // 组件内部更新
+                const subTree = render.call(state);
+                patch(instance.subTree, subTree, container, anchor); // 更新
+                instance.subTree = subTree;
+            }
+        }
+
+        // 组件异步更新
+        const effect = new ReactiveEffect(componenUpdateFn, () => queueJon(instance.update))
+
+        //我们将强制更新的逻辑保存到了组件的实例上，后续可以使用
+        let update = instance.update = effect.run.bind(effect); // 调用 effect 可以让组件强制重新渲染
+        update();
+    }
+    // 处理组件
+    const processComponent = (n1, n2, container, anchor) => { // 统一处理组件，判断是普通的还是函数式的
+        if(n1 === null) {
+            mountComponent(n2, container, anchor)
+        } else {
+            // 组件更新靠的是 props
+        }
+    }
 
     // 核心方法
     const patch = (n1, n2, container, anchor = null) => {
@@ -300,8 +346,11 @@ export function createRenderer(renderOptions) {
                 break;
             default: 
                 // 元素
+                console.log(999, shapeFlag, ShapeFlags.ELEMENT, ShapeFlags.COMPONENT)
                 if(shapeFlag & ShapeFlags.ELEMENT) {
                     processElement(n1, n2, container, anchor);
+                } else if (shapeFlag & ShapeFlags.COMPONENT) { // 判断是不是组件
+                    processComponent(n1, n2, container, anchor)
                 }
         }
     }

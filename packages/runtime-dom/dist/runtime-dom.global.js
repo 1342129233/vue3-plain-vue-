@@ -20,6 +20,7 @@ var VueRuntimeDOM = (() => {
   // packages/runtime-dom/src/index.ts
   var src_exports = {};
   __export(src_exports, {
+    Fragment: () => Fragment,
     Text: () => Text,
     createRenderer: () => createRenderer,
     createVnode: () => createVnode,
@@ -28,6 +29,104 @@ var VueRuntimeDOM = (() => {
     isVnode: () => isVnode,
     render: () => render
   });
+
+  // packages/reactivity/src/effect.ts
+  var activeEffect;
+  function cleanupEffect(effect2) {
+    const { deps } = effect2;
+    for (let i = 0; i < deps.length; i++) {
+      deps[i].delete(effect2);
+    }
+    effect2.deps.length = 0;
+  }
+  var ReactiveEffect = class {
+    constructor(fn, scheduler) {
+      this.fn = fn;
+      this.scheduler = scheduler;
+      this.parent = null;
+      this.deps = [];
+      this.active = true;
+    }
+    run() {
+      if (!this.active) {
+        this.fn();
+      }
+      try {
+        this.parent = activeEffect;
+        activeEffect = this;
+        cleanupEffect(this);
+        return this.fn();
+      } finally {
+        resetTracking();
+        activeEffect = this.parent;
+      }
+    }
+    stop() {
+      if (this.active) {
+        this.active = false;
+        cleanupEffect(this);
+      }
+    }
+  };
+  var targetMap = /* @__PURE__ */ new WeakMap();
+  function track(target, get, key) {
+    key = String(key);
+    if (!activeEffect)
+      return;
+    let depsMap = targetMap.get(target);
+    if (!depsMap) {
+      targetMap.set(target, depsMap = /* @__PURE__ */ new Map());
+    }
+    let dep = depsMap.get(key);
+    if (!dep) {
+      depsMap.set(key, dep = /* @__PURE__ */ new Set());
+    }
+    trackEffect(dep);
+  }
+  function trackEffect(dep) {
+    if (activeEffect) {
+      const shouIdTrack = !dep.has(activeEffect);
+      if (shouIdTrack) {
+        dep.add(activeEffect);
+        activeEffect.deps.push(dep);
+      }
+    }
+  }
+  function trigger(target, set, key, value, oldValue) {
+    const depsMap = targetMap.get(target);
+    if (!depsMap)
+      return;
+    let effects = depsMap.get(key);
+    if (effects) {
+      triggerEffect(effects);
+    }
+  }
+  function triggerEffect(effects) {
+    effects = new Set(effects);
+    effects && effects.forEach((effect2) => {
+      if (effect2 !== activeEffect) {
+        if (effect2.scheduler) {
+          effect2.scheduler();
+        } else {
+          effect2.run();
+        }
+      }
+    });
+  }
+  var shouldTrack = true;
+  var trackStack = [];
+  function pauseTracking() {
+    trackStack.push(shouldTrack);
+    shouldTrack = false;
+  }
+  function enableTracking() {
+    trackStack.push(shouldTrack);
+    shouldTrack = true;
+  }
+  function resetTracking() {
+    const last = trackStack.pop();
+    shouldTrack = last === void 0 ? true : last;
+  }
 
   // packages/shared/src/index.ts
   var isObject = (value) => {
@@ -41,8 +140,153 @@ var VueRuntimeDOM = (() => {
   };
   var isArray = Array.isArray;
 
+  // packages/reactivity/src/ref.ts
+  function isRef(r) {
+    return Boolean(r && r.__v_isRef === true);
+  }
+
+  // packages/reactivity/src/baseHandler.ts
+  var hasOwnProperty = Object.prototype.hasOwnProperty;
+  var hasOwn = (val, key) => {
+    return hasOwnProperty.call(val, key);
+  };
+  var isIntegerKey = (key) => {
+    return isString(key) && key !== "NaN" && key[0] !== "-" && "" + parseInt(key, 10) === key;
+  };
+  var hasChanged = (value, oldValue) => value !== oldValue && (value === value || oldValue === oldValue);
+  var arrayInstrumentations = {};
+  var shallow = false;
+  var mutableHandlers = {
+    get(target, key, receiver) {
+      if (key === "__v_isReactive" /* IS_REACTIVE */) {
+        return true;
+      }
+      const targetIsArray = isArray(target);
+      if (targetIsArray && hasOwn(arrayInstrumentations, key)) {
+        return Reflect.get(arrayInstrumentations, key, receiver);
+      }
+      track(target, "get", key);
+      const res = Reflect.get(target, key, receiver);
+      if (isObject(res)) {
+        return reactive(res);
+      }
+      return res;
+    },
+    set(target, key, value, receiver) {
+      if (["push", "pop", "shift", "unshift", "splice"].includes(key)) {
+        key = arrayInstrumentations[key](receiver, value);
+      }
+      const oldValue = target[key];
+      if (!shallow) {
+        value = toRaw(value);
+        if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
+          oldValue.value = value;
+          return true;
+        }
+      } else {
+      }
+      const hadKey = isArray(target) && isIntegerKey(key) ? Number(key) < target.length : hasOwn(target, key);
+      let result = Reflect.set(target, key, value, receiver);
+      if (!hadKey) {
+        trigger(target, "add" /* ADD */, key, value, oldValue);
+      } else if (hasChanged(value, oldValue)) {
+        trigger(target, "set", key, value, oldValue);
+      }
+      return result;
+    }
+  };
+  ["push", "pop", "shift", "unshift", "splice"].forEach((key) => {
+    const method = Array.prototype[key];
+    arrayInstrumentations[key] = function(...args) {
+      pauseTracking();
+      const res = method.apply(this, args);
+      enableTracking();
+      return res;
+    };
+  });
+  ["includes", "indexOf", "lastIndexOf"].forEach((key) => {
+    const method = Array.prototype[key];
+    arrayInstrumentations[key] = function(...args) {
+      const arr = toRaw(this);
+      for (let i = 0, l = this.length; i < l; i++) {
+        track(arr, "get", i + "");
+      }
+      const res = method.apply(arr, args);
+      if (res === -1 || res === false) {
+        return method.apply(arr, args.map(toRaw));
+      } else {
+        return res;
+      }
+    };
+  });
+
+  // packages/reactivity/src/reactive.ts
+  var reactiveMap = /* @__PURE__ */ new WeakMap();
+  function reactive(target) {
+    if (!isObject(target)) {
+      return;
+    }
+    if (target["__v_isReactive" /* IS_REACTIVE */]) {
+      return target;
+    }
+    let exisitingProxy = reactiveMap.get(target);
+    if (exisitingProxy) {
+      return exisitingProxy;
+    }
+    const proxy = new Proxy(target, mutableHandlers);
+    reactiveMap.set(target, proxy);
+    return proxy;
+  }
+  function toRaw(observed) {
+    return observed && toRaw(observed["__v_raw" /* RAW */]) || observed;
+  }
+
+  // packages/runtime-core/src/sequence.ts
+  function getSequence(arr) {
+    const len = arr.length;
+    const result = [0];
+    const p = new Array(len).fill(0);
+    let start;
+    let end;
+    let middle;
+    let resultLastIndex;
+    for (let i2 = 0; i2 < len; i2++) {
+      let arrI = arr[i2];
+      if (arrI !== 0) {
+        resultLastIndex = result[result.length - 1];
+        if (arr[resultLastIndex] < arrI) {
+          result.push(i2);
+          p[i2] = resultLastIndex;
+          continue;
+        }
+        start = 0;
+        end = result.length - 1;
+        while (start < end) {
+          middle = (start + end) / 2 | 0;
+          if (arr[result[middle]] < arrI) {
+            start = middle + 1;
+          } else {
+            end = middle;
+          }
+        }
+        if (arr[result[end]] > arrI) {
+          result[end] = i2;
+          p[i2] = result[end - 1];
+        }
+      }
+    }
+    let i = result.length;
+    let last = result[i - 1];
+    while (i-- > 0) {
+      result[i] = last;
+      last = p[last];
+    }
+    return result;
+  }
+
   // packages/runtime-core/src/vnode.ts
   var Text = Symbol("Text");
+  var Fragment = Symbol("Fragment");
   function isVnode(value) {
     return !!(value && value.__v_isVnode);
   }
@@ -73,6 +317,29 @@ var VueRuntimeDOM = (() => {
       vnode.shapeFlag |= type2;
     }
     return vnode;
+  }
+
+  // packages/runtime-core/src/scheduler.ts
+  var queue = [];
+  var isFlushing = false;
+  var resolvePromise = Promise.resolve();
+  function queueJon(job) {
+    if (!queue.includes(job)) {
+      queue.push(job);
+    }
+    if (!isFlushing) {
+      isFlushing = true;
+      resolvePromise.then(() => {
+        isFlushing = false;
+        let copy = queue.slice(0);
+        for (let i = 0; i < copy.length; i++) {
+          let job2 = copy[i];
+          job2();
+        }
+        queue.length = 0;
+        copy.length = 0;
+      });
+    }
   }
 
   // packages/runtime-core/src/renderer.ts
@@ -183,6 +450,42 @@ var VueRuntimeDOM = (() => {
           }
         }
       }
+      console.log(i, e1, e2);
+      let s1 = i;
+      let s2 = i;
+      const keyToNewIndexMap = /* @__PURE__ */ new Map();
+      for (let i2 = s2; i2 <= e2; i2++) {
+        keyToNewIndexMap.set(c2[i2].key, i2);
+      }
+      const toBePatched = e2 - s2 + 1;
+      const newIndexToOldIndexMap = new Array(toBePatched).fill(0);
+      for (let i2 = s1; i2 < e1; i2++) {
+        const oldChild = c1[i2];
+        const newIndex = keyToNewIndexMap.get(oldChild.key);
+        if (newIndex === void 0) {
+          unmount(oldChild);
+        } else {
+          newIndexToOldIndexMap[newIndex - s2] = i2 + 1;
+          patch(oldChild, c2[newIndex], el);
+        }
+      }
+      let increment = getSequence(newIndexToOldIndexMap);
+      let j = increment.length - 1;
+      for (let i2 = toBePatched - 1; i2 >= 0; i2--) {
+        let index = i2 + s2;
+        let current = c2[index];
+        let anchor = index + 1 < c2.length ? c2[index + 1].el : null;
+        if (newIndexToOldIndexMap[i2] === 0) {
+          patch(null, current, el, anchor);
+        } else {
+          if (i2 !== increment[j]) {
+            hostInsert(current.el, el, anchor);
+          }
+          {
+            j--;
+          }
+        }
+      }
     };
     const patchChildren = (n1, n2, el) => {
       const c1 = n1 && n1.children;
@@ -227,6 +530,48 @@ var VueRuntimeDOM = (() => {
         patchElement(n1, n2, container);
       }
     };
+    const processFragment = (n1, n2, container, anchor) => {
+      if (n1 == null) {
+        mountChildren(n2.children, container);
+      } else {
+        patchChildren(n1, n2, container);
+      }
+    };
+    const mountComponent = (vnode, container, anchor) => {
+      let { data = () => ({}), render: render3 } = vnode.type;
+      const state = reactive(data());
+      const instance = {
+        state,
+        vnode,
+        subTree: null,
+        isMounted: false,
+        update: null,
+        props: null,
+        slots: null,
+        attrs: null
+      };
+      const componenUpdateFn = () => {
+        if (!instance.isMounted) {
+          const subTree = render3.call(state);
+          patch(null, subTree, container, anchor);
+          instance.subTree = subTree;
+          instance.isMounted = true;
+        } else {
+          const subTree = render3.call(state);
+          patch(instance.subTree, subTree, container, anchor);
+          instance.subTree = subTree;
+        }
+      };
+      const effect2 = new ReactiveEffect(componenUpdateFn, () => queueJon(instance.update));
+      let update = instance.update = effect2.run.bind(effect2);
+      update();
+    };
+    const processComponent = (n1, n2, container, anchor) => {
+      if (n1 === null) {
+        mountComponent(n2, container, anchor);
+      } else {
+      }
+    };
     const patch = (n1, n2, container, anchor = null) => {
       if (n1 === n2) {
         return;
@@ -240,9 +585,15 @@ var VueRuntimeDOM = (() => {
         case Text:
           processText(n1, n2, container);
           break;
+        case Fragment:
+          processFragment(n1, n2, container, anchor);
+          break;
         default:
+          console.log(999, shapeFlag, 1 /* ELEMENT */, 6 /* COMPONENT */);
           if (shapeFlag & 1 /* ELEMENT */) {
             processElement(n1, n2, container, anchor);
+          } else if (shapeFlag & 6 /* COMPONENT */) {
+            processComponent(n1, n2, container, anchor);
           }
       }
     };
