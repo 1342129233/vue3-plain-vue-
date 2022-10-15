@@ -1,9 +1,11 @@
 
 import { reactive, ReactiveEffect } from "@vue/reactivity";
-import { isArray, isString, ShapeFlags, isNumber } from "@vue/shared";
+import { isArray, isString, ShapeFlags, isNumber, hasOwn } from "@vue/shared";
 import { getSequence } from './sequence';
 import { createVnode, Text, isSameVnode, Fragment } from './vnode';
 import { queueJon } from './scheduler';
+import { initProps } from './componentProps';
+import { createComponentInstance, setupComponent } from './component';
 
 export function createRenderer(renderOptions) {
     let {
@@ -276,30 +278,32 @@ export function createRenderer(renderOptions) {
             patchChildren(n1, n2, container); // 走的是 diff 
         }
     }
-    const mountComponent = (vnode, container, anchor) => {
-        let { data=()=>({}), render } = vnode.type; //  这个就是组件写的内容
-        const state = reactive(data()); // 源码就是 reactive({}), 作为组件的状态
 
-        const instance = { // 组件的实例
-            state, // 状态
-            vnode, // 虚拟节点
-            subTree: null, // vnodez组件的虚拟节点, 渲染的组件内容
-            isMounted: false,
-            update: null,
-            props: null,
-            slots: null,
-            attrs: null
-        }
+    // // 公共的属性映射表
+    // const publicPropertyMap = {
+    //     $attrs: (i) => i.attrs
+    // }
+
+    const mountComponent = (vnode, container, anchor) => {
+        // 1) 要创造一个组件的实例
+        let instance = vnode.component = createComponentInstance(vnode);
+        // 2) 给实例上赋值
+        vnode.component = setupComponent(instance);
+        // 3) 创建一个 effect
+        setupRenderEffect(instance, container, anchor)
+    }
+
+    const setupRenderEffect = (instance, container, anchor) => {
 
         const componenUpdateFn = () => { // 区分是初始化还是更新
             if(!instance.isMounted) { // 初始化
-                const subTree = render.call(state); // 作为 this 后续 this 会改
+                const subTree = render.call(instance.proxy); // 作为 this 后续 this 会改
                 // subTree 创建成真实节点
                 patch(null, subTree, container, anchor); // 创建了subTree 的真实节点
                 instance.subTree = subTree;
                 instance.isMounted = true;
             } else{ // 组件内部更新
-                const subTree = render.call(state);
+                const subTree = render.call(instance.proxy);
                 patch(instance.subTree, subTree, container, anchor); // 更新
                 instance.subTree = subTree;
             }
