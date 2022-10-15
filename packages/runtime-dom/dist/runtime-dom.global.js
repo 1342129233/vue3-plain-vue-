@@ -138,6 +138,9 @@ var VueRuntimeDOM = (() => {
   var isNumber = (value) => {
     return typeof value === "number";
   };
+  var isFunction = (value) => {
+    return typeof value === "function";
+  };
   var isArray = Array.isArray;
   var hasOwnProperty = Object.prototype.hasOwnProperty;
   var hasOwn = (value, key) => hasOwnProperty.call(value, key);
@@ -345,13 +348,13 @@ var VueRuntimeDOM = (() => {
   }
 
   // packages/runtime-core/src/componentProps.ts
-  function initProps(instance, rowProps) {
+  function initProps(instance, rawProps) {
     const props = {};
     const attrs = {};
     const options = instance.propsOptions || {};
-    if (rowProps) {
-      for (let key in rowProps) {
-        const value = [key];
+    if (rawProps) {
+      for (let key in rawProps) {
+        const value = rawProps[key];
         if (hasOwn(options, key)) {
           props[key] = value;
         } else {
@@ -361,6 +364,94 @@ var VueRuntimeDOM = (() => {
     }
     instance.props = reactive(props);
     instance.attrs = attrs;
+  }
+  var hasPropsChanged = (prevProps = {}, nextProps = {}) => {
+    const nextKeys = Object.keys(nextProps);
+    const prevKeys = Object.keys(prevProps);
+    if (nextKeys.length !== prevKeys.length) {
+      return true;
+    }
+    for (let i = 0; i < nextKeys.length; i++) {
+      const key = nextKeys[i];
+      if (nextProps[key] !== prevProps[key]) {
+        return true;
+      }
+    }
+    return false;
+  };
+  function updateProps(instance, prevProps, nextProps) {
+    if (hasPropsChanged(prevProps, nextProps)) {
+      for (const key in nextProps) {
+        instance.props[key] = nextProps[key];
+      }
+      for (const key in instance.props) {
+        if (!hasOwn(nextProps, key)) {
+          delete instance.props[key];
+        }
+      }
+    }
+  }
+
+  // packages/runtime-core/src/component.ts
+  function createComponentInstance(vnode) {
+    const instance = {
+      data: null,
+      vnode,
+      subTree: null,
+      isMounted: false,
+      update: null,
+      propsOptions: vnode.type.props,
+      props: {},
+      attrs: {},
+      proxy: null,
+      render: null,
+      setupState: {},
+      slots: {}
+    };
+    return instance;
+  }
+  var publicPropertyMap = {
+    $attrs: (i) => i.attrs
+  };
+  var publicInstanceProxy = {
+    get(target, key) {
+      const { data, props, setupState } = target;
+      if (data && hasOwn(data, key)) {
+        return data[key];
+      } else if (hasOwn(setupState, key)) {
+        return setupState[key];
+      } else if (props && hasOwn(props, key)) {
+        return props[key];
+      }
+      let getter = publicPropertyMap[key];
+      if (getter) {
+        return getter(target);
+      }
+    },
+    set(target, key, value) {
+      const { data, props, setupState } = target;
+      if (data && hasOwn(data, key)) {
+        data[key] = value;
+      } else if (hasOwn(setupState, key)) {
+        setupState[key] = value;
+      } else if (props && hasOwn(props, key)) {
+        console.warn("attempting to mutate prop " + key);
+        return false;
+      }
+      return true;
+    }
+  };
+  function setupComponent(instance) {
+    let { props, type } = instance.vnode;
+    initProps(instance, props);
+    instance.proxy = new Proxy(instance, publicInstanceProxy);
+    let data = type.data;
+    if (data) {
+      if (!isFunction(data))
+        return console.warn("data option must be a function");
+      instance.data = reactive(data.call(instance.proxy));
+    }
+    instance.render = type.render;
   }
 
   // packages/runtime-core/src/renderer.ts
@@ -471,7 +562,6 @@ var VueRuntimeDOM = (() => {
           }
         }
       }
-      console.log(i, e1, e2);
       let s1 = i;
       let s2 = i;
       const keyToNewIndexMap = /* @__PURE__ */ new Map();
@@ -558,50 +648,13 @@ var VueRuntimeDOM = (() => {
         patchChildren(n1, n2, container);
       }
     };
-    const publicPropertyMap = {
-      $attrs: (i) => i.attrs
-    };
     const mountComponent = (vnode, container, anchor) => {
-      let { data = () => ({}), render: render3, props: propsOptions = {} } = vnode.type;
-      const state = reactive(data());
-      const instance = {
-        state,
-        vnode,
-        subTree: null,
-        isMounted: false,
-        props: {},
-        propsOptions: {},
-        attrs: {},
-        proxy: null,
-        slots: null,
-        update: null
-      };
-      initProps(instance, vnode.props);
-      instance.proxy = new Proxy(instance, {
-        get(target, key) {
-          const { state: state2, props } = target;
-          if (state2 && hasOwn(state2, key)) {
-            return state2[key];
-          } else if (props && hasOwn(props, key)) {
-            return props[key];
-          }
-          const getter = publicPropertyMap[key];
-          if (getter) {
-            return getter(target);
-          }
-        },
-        set(target, key, value) {
-          const { state: state2, props } = target;
-          if (state2 && hasOwn(state2, key)) {
-            state2[key] = value;
-            return true;
-          } else if (props && hasOwn(props, key)) {
-            console.log("attempting to mutate prop" + key);
-            return false;
-          }
-          return true;
-        }
-      });
+      let instance = vnode.component = createComponentInstance(vnode);
+      setupComponent(instance);
+      setupRenderEffect(instance, container, anchor);
+    };
+    const setupRenderEffect = (instance, container, anchor) => {
+      const { render: render3 } = instance;
       const componenUpdateFn = () => {
         if (!instance.isMounted) {
           const subTree = render3.call(instance.proxy);
@@ -618,10 +671,17 @@ var VueRuntimeDOM = (() => {
       let update = instance.update = effect2.run.bind(effect2);
       update();
     };
+    const updateComponent = (n1, n2) => {
+      const instance = n2.component = n1.component;
+      const { props: prevProps } = n1;
+      const { props: nextProps } = n2;
+      updateProps(instance, prevProps, nextProps);
+    };
     const processComponent = (n1, n2, container, anchor) => {
       if (n1 === null) {
         mountComponent(n2, container, anchor);
       } else {
+        updateComponent(n1, n2);
       }
     };
     const patch = (n1, n2, container, anchor = null) => {
@@ -641,7 +701,6 @@ var VueRuntimeDOM = (() => {
           processFragment(n1, n2, container, anchor);
           break;
         default:
-          console.log(999, shapeFlag, 1 /* ELEMENT */, 6 /* COMPONENT */);
           if (shapeFlag & 1 /* ELEMENT */) {
             processElement(n1, n2, container, anchor);
           } else if (shapeFlag & 6 /* COMPONENT */) {

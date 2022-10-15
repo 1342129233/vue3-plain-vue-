@@ -17,18 +17,32 @@
     // 组件的三大特性 1.属性变化,组件如何更新 2.插槽 3.事件
     // setup 函数 (compositionAPI 的入口) 组件的生命周期
 
-    const VueComponent = {
+    const MyComponent = {
         props: {
-            address: String, // 校验属性类型
-            c: Object
+            address: String
         },
         render() {
-            return h('p',[this.address, this.$attrs.a, this.$attrs.b, this.c.n]);
+            return h(Text, this.address)
         }
     }
 
-    // vue props(用户接受的) attrs(用户没有接受的)
-    render(h(VueComponent, { address: '火影', a: 1, b: 2, c: { n: 1 } }), app)
+    const VueComponent = {
+        data() {
+            return {
+                flag: false
+            }
+        },
+        render() {
+            return h(Fragment, [
+                h('button', { onClick: () => this.flag = !this.flag }, '切换渲染'),
+                h(MyComponent, { address: this.flag ? '地球' : '月球' })
+            ]);
+        }
+    }
+
+    // // vue props(用户接受的) attrs(用户没有接受的)
+    // render(h(VueComponent, { address: '火影', a: 1, b: 2, c: { n: 1 } }), app)
+    render(h(VueComponent), app)
 </script>
 </body>
 </html>

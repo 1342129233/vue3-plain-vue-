@@ -4,7 +4,7 @@ import { isArray, isString, ShapeFlags, isNumber, hasOwn } from "@vue/shared";
 import { getSequence } from './sequence';
 import { createVnode, Text, isSameVnode, Fragment } from './vnode';
 import { queueJon } from './scheduler';
-import { initProps } from './componentProps';
+import { initProps, updateProps } from './componentProps';
 import { createComponentInstance, setupComponent } from './component';
 
 export function createRenderer(renderOptions) {
@@ -159,7 +159,6 @@ export function createRenderer(renderOptions) {
 
         // 优化
         // 乱序对比
-        console.log(i, e1, e2);
         let s1 = i;
         let s2 = i;
         const keyToNewIndexMap = new Map(); // key -> newIndex
@@ -279,22 +278,17 @@ export function createRenderer(renderOptions) {
         }
     }
 
-    // // 公共的属性映射表
-    // const publicPropertyMap = {
-    //     $attrs: (i) => i.attrs
-    // }
-
     const mountComponent = (vnode, container, anchor) => {
         // 1) 要创造一个组件的实例
-        let instance = vnode.component = createComponentInstance(vnode);
+        let instance = (vnode.component = createComponentInstance(vnode));
         // 2) 给实例上赋值
-        vnode.component = setupComponent(instance);
+        setupComponent(instance);
         // 3) 创建一个 effect
         setupRenderEffect(instance, container, anchor)
     }
 
     const setupRenderEffect = (instance, container, anchor) => {
-
+        const { render } = instance;
         const componenUpdateFn = () => { // 区分是初始化还是更新
             if(!instance.isMounted) { // 初始化
                 const subTree = render.call(instance.proxy); // 作为 this 后续 this 会改
@@ -316,12 +310,23 @@ export function createRenderer(renderOptions) {
         let update = instance.update = effect.run.bind(effect); // 调用 effect 可以让组件强制重新渲染
         update();
     }
+
+    const updateComponent = (n1, n2) => {
+        // instance.props 是响应式的, 而且可以更改, 属性的更新会导致页面重新渲染
+        const instance = (n2.component = n1.component); // 对于元素而言, 复用的是 dom 节点,对于组件来说复用的是实例
+        const { props: prevProps } = n1;
+        const { props: nextProps } = n2;
+        updateProps(instance, prevProps, nextProps); // 属性更新
+    }
+
     // 处理组件
     const processComponent = (n1, n2, container, anchor) => { // 统一处理组件，判断是普通的还是函数式的
         if(n1 === null) {
+            // 创建组件
             mountComponent(n2, container, anchor)
         } else {
             // 组件更新靠的是 props
+            updateComponent(n1, n2)
         }
     }
 
@@ -350,7 +355,6 @@ export function createRenderer(renderOptions) {
                 break;
             default: 
                 // 元素
-                console.log(999, shapeFlag, ShapeFlags.ELEMENT, ShapeFlags.COMPONENT)
                 if(shapeFlag & ShapeFlags.ELEMENT) {
                     processElement(n1, n2, container, anchor);
                 } else if (shapeFlag & ShapeFlags.COMPONENT) { // 判断是不是组件
