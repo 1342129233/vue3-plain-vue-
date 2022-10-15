@@ -22,7 +22,7 @@ export function initProps(instance, rawProps) {
     instance.attrs = attrs;
 };
 
-const hasPropsChanged = (prevProps = {}, nextProps = {}) => {
+export const hasPropsChanged = (prevProps = {}, nextProps = {}) => {
     const nextKeys = Object.keys(nextProps);
     const prevKeys = Object.keys(prevProps);
 
@@ -42,7 +42,7 @@ const hasPropsChanged = (prevProps = {}, nextProps = {}) => {
     return false;
 }
 
-export function updateProps(instance, prevProps, nextProps) {
+export function updateProps(prevProps, nextProps) {
     // 1. 看一下属性有没有变化
     // 2. 值的变化
     // 3. 属性的个数是否发生变化
@@ -50,13 +50,13 @@ export function updateProps(instance, prevProps, nextProps) {
     // 值和属性的个数是不是发生变化
     if(hasPropsChanged(prevProps, nextProps)) {
         for(const key in nextProps) {
-            instance.props[key] = nextProps[key];
+            prevProps[key] = nextProps[key];
         }
 
         // 删除新的不存在的属性
-        for(const key in instance.props) {
+        for(const key in prevProps) {
             if(!hasOwn(nextProps, key)) {
-                delete instance.props[key];
+                delete prevProps[key];
             }
         }
     }

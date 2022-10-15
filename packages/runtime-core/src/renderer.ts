@@ -4,7 +4,7 @@ import { isArray, isString, ShapeFlags, isNumber, hasOwn } from "@vue/shared";
 import { getSequence } from './sequence';
 import { createVnode, Text, isSameVnode, Fragment } from './vnode';
 import { queueJon } from './scheduler';
-import { initProps, updateProps } from './componentProps';
+import { initProps, updateProps, hasPropsChanged } from './componentProps';
 import { createComponentInstance, setupComponent } from './component';
 
 export function createRenderer(renderOptions) {
@@ -287,6 +287,13 @@ export function createRenderer(renderOptions) {
         setupRenderEffect(instance, container, anchor)
     }
 
+    const updateComponentPreRender = (instance, next) => {
+        instance.next = null;
+        instance.vnode = next; // 实例上最新的虚拟节点
+        // 之前的props, 之后的 props
+        updateProps(instance.props, next.props)
+    }
+
     const setupRenderEffect = (instance, container, anchor) => {
         const { render } = instance;
         const componenUpdateFn = () => { // 区分是初始化还是更新
@@ -297,6 +304,12 @@ export function createRenderer(renderOptions) {
                 instance.subTree = subTree;
                 instance.isMounted = true;
             } else{ // 组件内部更新
+                let { next } = instance;
+                if(next) {
+                    // 更新前, 我也需要拿到最新的属性来进行更新
+                    updateComponentPreRender(instance, next)
+                }
+
                 const subTree = render.call(instance.proxy);
                 patch(instance.subTree, subTree, container, anchor); // 更新
                 instance.subTree = subTree;
@@ -311,12 +324,30 @@ export function createRenderer(renderOptions) {
         update();
     }
 
+    // 要不要更新
+    const shouldUpdateComponent = (n1, n2) => {
+        // children 插槽
+        const { props: prevProps, children: prevChildren } = n1;
+        const { props: nextProps, children: nextChildren } = n2;
+        if(prevProps === nextProps) return false;
+        if(prevChildren || nextChildren) {
+            return true;
+        }
+        return hasPropsChanged(prevProps, nextProps);
+    }
+
     const updateComponent = (n1, n2) => {
         // instance.props 是响应式的, 而且可以更改, 属性的更新会导致页面重新渲染
         const instance = (n2.component = n1.component); // 对于元素而言, 复用的是 dom 节点,对于组件来说复用的是实例
-        const { props: prevProps } = n1;
-        const { props: nextProps } = n2;
-        updateProps(instance, prevProps, nextProps); // 属性更新
+        // const { props: prevProps } = n1;
+        // const { props: nextProps } = n2;
+        // updateProps(instance, prevProps, nextProps); // 属性更新
+        // 统一处理
+        // 需要更新就强制调用 update 方法
+        if(shouldUpdateComponent(n1, n2)) {
+            instance.next = n2; // 将新的虚拟节点放到 next 属性上
+            instance.update();
+        }
     }
 
     // 处理组件
