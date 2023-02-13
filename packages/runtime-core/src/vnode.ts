@@ -44,4 +44,4 @@ export function createVnode(type, props, children = null) {
       vnode.shapeFlag |= type // 计算得出这个元素的类型
     }
     return vnode
-  }
+}

@@ -17,6 +17,12 @@ export const isFunction = (value) => {
 export const isArray = Array.isArray;
 export const assign = Object.assign;
 
+export const invokeArrayFns = (fns) => {
+    for(let i = 0; i < fns.length; i++) {
+        fns[i]()
+    }
+}
+
 const hasOwnProperty = Object.prototype.hasOwnProperty;
 export const hasOwn = (value, key) => hasOwnProperty.call(value, key);
 

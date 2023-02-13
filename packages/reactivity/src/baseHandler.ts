@@ -60,14 +60,14 @@ export const mutableHandlers = {
         return res;
     },
     set(target, key, value, receiver) {
+        console.log(target, key, value, receiver);
         if(['push', 'pop', 'shift', 'unshift', 'splice'].includes(key)) {
-            key = arrayInstrumentations[key](receiver, value) 
+            key = arrayInstrumentations[key](receiver, value);
         }
-        
         const oldValue = target[key];
         // 判定开始
         if (!shallow) {
-            value = toRaw(value)
+            value = toRaw(value); // 解除绑定
             if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
               oldValue.value = value
               return true
@@ -80,9 +80,9 @@ export const mutableHandlers = {
         let result = Reflect.set(target, key, value, receiver);
         // if (target === toRaw(receiver)) {
             if (!hadKey) {
-              trigger(target, TriggerOpTypes.ADD, key, value, oldValue)
+                trigger(target, TriggerOpTypes.ADD, key, value, oldValue)
             } else if (hasChanged(value, oldValue)) {
-              trigger(target, 'set', key, value, oldValue)
+                trigger(target, 'set', key, value, oldValue)
             }
         // }
         // if(value !== oldValue) {
@@ -120,4 +120,4 @@ export const mutableHandlers = {
         return res
       }
     }
-  })
+})

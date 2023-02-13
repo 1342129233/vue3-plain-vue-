@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+<div id="app"></div>
+<!-- <script src="../../../node_modules/@vue/runtime-dom/dist/runtime-dom.global.js"></script> -->
+<!-- <script src="../../../node_modules/@vue/runtime-core/dist/runtime-dom.global.js"></script> -->
+<script src="./runtime-dom.global.js"></script>
+<script>
+    let { createRenderer, h, render, Text, Fragment } = VueRuntimeDOM
+
+    // 组件的三大特性 1.属性变化,组件如何更新 2.插槽 3.事件
+    // setup 函数 (compositionAPI 的入口) 组件的生命周期
+
+    const MyComponent = {
+        props: {
+            address: String
+        },
+        render() {
+            return h(Text, this.address)
+        }
+    }
+
+    const VueComponent = {
+        data() {
+            return {
+                flag: false
+            }
+        },
+        render() {
+            return h(Fragment, [
+                h('button', { onClick: () => this.flag = !this.flag }, '切换渲染'),
+                h(MyComponent, { address: this.flag ? '地球' : '月球' })
+            ]);
+        }
+    }
+
+    // // vue props(用户接受的) attrs(用户没有接受的)
+    // render(h(VueComponent, { address: '火影', a: 1, b: 2, c: { n: 1 } }), app)
+    render(h(VueComponent), app)
+</script>
+</body>
+</html>

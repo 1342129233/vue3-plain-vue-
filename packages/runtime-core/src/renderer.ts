@@ -1,10 +1,10 @@
 
-import { reactive, ReactiveEffect } from "@vue/reactivity";
-import { isArray, isString, ShapeFlags, isNumber, hasOwn } from "@vue/shared";
+import { ReactiveEffect } from "@vue/reactivity";
+import { isString, ShapeFlags, isNumber, invokeArrayFns } from "@vue/shared";
 import { getSequence } from './sequence';
 import { createVnode, Text, isSameVnode, Fragment } from './vnode';
 import { queueJon } from './scheduler';
-import { initProps, updateProps, hasPropsChanged } from './componentProps';
+import { updateProps, hasPropsChanged } from './componentProps';
 import { createComponentInstance, setupComponent } from './component';
 
 export function createRenderer(renderOptions) {
@@ -27,7 +27,12 @@ export function createRenderer(renderOptions) {
           children[i] = vnode
         }
         return children[i]
-      }
+    }
+    /**
+     * 挂载子节点
+     * @param children
+     * @param container
+    */
     // 创建子元素递归
     const mountChildren = (children, container) => {
         for(let i = 0; i < children.length; i++) {
@@ -48,9 +53,9 @@ export function createRenderer(renderOptions) {
 
         // 如果有 props 就循环添加  props 包括 style class event attrs
         if (props) {
-        for (let key in props) {
-            hostPatchProp(el, key, null, props[key])
-        }
+            for (let key in props) {
+                hostPatchProp(el, key, null, props[key])
+            }
         }
         // 如果是文本
         if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
@@ -70,7 +75,7 @@ export function createRenderer(renderOptions) {
             hostInsert((n2.el = hostCreateText(n2.children)), container)
         } else {
             // 文本的内容变化了,可以服用老的节点
-            const el = n2.el = n1.el;
+            const el = (n2.el = n1.el);
             if(n1.children !== n2.children) {
                 hostSetText(el, n2.children); // 文本的更新 
             }
@@ -89,7 +94,7 @@ export function createRenderer(renderOptions) {
             }
         }
     }
-    // 删除循环里的每一项
+    // 删除循环里的每一项 卸载儿子
     const unmountChildren = (children) => {
         for(let i = 0; i < children.length; i++) {
             unmount(children[i])
@@ -196,6 +201,7 @@ export function createRenderer(renderOptions) {
                 patch(null, current, el, anchor)
             } else { // 不是0 说明是已经对比过属性和儿子的了
                 if(i !== increment[j]) {
+                    // 目前无论如何做了一遍倒叙插入, 其实可以不用的, 可以根据刚才的数组来减少插入次数
                     hostInsert(current.el, el, anchor); // 复用节点 
                 } {
                     j--;
@@ -257,6 +263,8 @@ export function createRenderer(renderOptions) {
         // 去比较
         patchProps(oldProps, newProps, el);
 
+        // n2 = normalize(n2) // n1 n2 的children 不一样需要处理 bug
+
         // 比较儿子
         patchChildren(n1, n2, el)
     };
@@ -298,25 +306,41 @@ export function createRenderer(renderOptions) {
         const { render } = instance;
         const componenUpdateFn = () => { // 区分是初始化还是更新
             if(!instance.isMounted) { // 初始化
-                const subTree = render.call(instance.proxy); // 作为 this 后续 this 会改
+                let { bm, m } = instance;
+                if(bm) {
+                    invokeArrayFns(bm);
+                }
+                const subTree = render.call(instance.proxy, instance.proxy); // 作为 this 后续 this 会改
                 // subTree 创建成真实节点
                 patch(null, subTree, container, anchor); // 创建了subTree 的真实节点
+                if(m) {
+                    invokeArrayFns(m);
+                }
                 instance.subTree = subTree;
                 instance.isMounted = true;
             } else{ // 组件内部更新
-                let { next } = instance;
+                let { next, bu, u } = instance;
                 if(next) {
                     // 更新前, 我也需要拿到最新的属性来进行更新
                     updateComponentPreRender(instance, next)
                 }
-
-                const subTree = render.call(instance.proxy);
+                // 组件内部更新
+                // 数据变化了之后，会重新生成 subTree 虚拟DOM ，再重新走patch方法。
+                if (bu) {
+                    invokeArrayFns(bu)
+                }
+                const subTree = render.call(instance.proxy, instance.proxy);
                 patch(instance.subTree, subTree, container, anchor); // 更新
                 instance.subTree = subTree;
+                if(u) {
+                    invokeArrayFns(u);
+                }
             }
         }
 
         // 组件异步更新
+        // 创建一个 effect ，将render()函数作为副作用函数，
+        // 把任务更新推入到异步任务中去,实现组件的异步更新
         const effect = new ReactiveEffect(componenUpdateFn, () => queueJon(instance.update))
 
         //我们将强制更新的逻辑保存到了组件的实例上，后续可以使用

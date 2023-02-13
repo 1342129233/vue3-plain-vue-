@@ -21,13 +21,36 @@ var VueRuntimeDOM = (() => {
   var src_exports = {};
   __export(src_exports, {
     Fragment: () => Fragment,
+    LifecycleHooks: () => LifecycleHooks,
+    ReactiveEffect: () => ReactiveEffect,
     Text: () => Text,
+    activeEffect: () => activeEffect,
+    computed: () => computed,
     createRenderer: () => createRenderer,
     createVnode: () => createVnode,
+    effect: () => effect,
+    enableTracking: () => enableTracking,
     h: () => h,
+    isRef: () => isRef,
     isSameVnode: () => isSameVnode,
     isVnode: () => isVnode,
-    render: () => render
+    onBeforeMount: () => onBeforeMount,
+    onBeforeUpdate: () => onBeforeUpdate,
+    onMounted: () => onMounted,
+    onUpdated: () => onUpdated,
+    pauseTracking: () => pauseTracking,
+    proxyRefs: () => proxyRefs,
+    reactive: () => reactive,
+    ref: () => ref,
+    render: () => render,
+    resetTracking: () => resetTracking,
+    toRef: () => toRef,
+    toRefs: () => toRefs,
+    track: () => track,
+    trackEffect: () => trackEffect,
+    trigger: () => trigger,
+    triggerEffect: () => triggerEffect,
+    watch: () => watch
   });
 
   // packages/reactivity/src/effect.ts
@@ -68,6 +91,13 @@ var VueRuntimeDOM = (() => {
       }
     }
   };
+  function effect(fn, options = {}) {
+    const _effect = new ReactiveEffect(fn, options.scheduler);
+    _effect.run();
+    const runner = _effect.run.bind(_effect);
+    runner.effect = _effect;
+    return runner;
+  }
   var targetMap = /* @__PURE__ */ new WeakMap();
   function track(target, get, key) {
     key = String(key);
@@ -142,12 +172,81 @@ var VueRuntimeDOM = (() => {
     return typeof value === "function";
   };
   var isArray = Array.isArray;
+  var invokeArrayFns = (fns) => {
+    for (let i = 0; i < fns.length; i++) {
+      fns[i]();
+    }
+  };
   var hasOwnProperty = Object.prototype.hasOwnProperty;
   var hasOwn = (value, key) => hasOwnProperty.call(value, key);
 
   // packages/reactivity/src/ref.ts
   function isRef(r) {
     return Boolean(r && r.__v_isRef === true);
+  }
+  function toReactive(value) {
+    return isObject(value) ? reactive(value) : value;
+  }
+  var RefImpl = class {
+    constructor(rawValue) {
+      this.rawValue = rawValue;
+      this.dep = /* @__PURE__ */ new Set();
+      this._v_isRef = true;
+      this._value = toReactive(rawValue);
+    }
+    get value() {
+      triggerEffect(this.dep);
+      return this._value;
+    }
+    set value(newValue) {
+      if (newValue !== this.rawValue) {
+        this._value = toReactive(newValue);
+        this.rawValue = newValue;
+        trackEffect(this.dep);
+      }
+    }
+  };
+  function ref(value) {
+    return new RefImpl(value);
+  }
+  var ObjectRefImpl = class {
+    constructor(object, key) {
+      this.object = object;
+      this.key = key;
+    }
+    get value() {
+      return this.object[this.key];
+    }
+    set value(newValue) {
+      this.object[this.key] = newValue;
+    }
+  };
+  function toRef(object, key) {
+    return new ObjectRefImpl(object, key);
+  }
+  function toRefs(object) {
+    const result = isArray(object) ? new Array(object.length) : {};
+    for (let key in object) {
+      result[key] = toRef(object, key);
+    }
+    return result;
+  }
+  function proxyRefs(object) {
+    return new Proxy(object, {
+      get(target, key, recevier) {
+        let r = Reflect.get(target, key, recevier);
+        return r._v_isRef ? r.value : r;
+      },
+      set(target, key, value, recevier) {
+        let oldValue = target[key];
+        if (oldValue._v_isRef) {
+          oldValue.value = value;
+          return oldValue;
+        } else {
+          return Reflect.set(target, key, value, recevier);
+        }
+      }
+    });
   }
 
   // packages/reactivity/src/baseHandler.ts
@@ -178,6 +277,7 @@ var VueRuntimeDOM = (() => {
       return res;
     },
     set(target, key, value, receiver) {
+      console.log(target, key, value, receiver);
       if (["push", "pop", "shift", "unshift", "splice"].includes(key)) {
         key = arrayInstrumentations[key](receiver, value);
       }
@@ -227,6 +327,9 @@ var VueRuntimeDOM = (() => {
 
   // packages/reactivity/src/reactive.ts
   var reactiveMap = /* @__PURE__ */ new WeakMap();
+  function isReactive(value) {
+    return !!(value && value["__v_isReactive" /* IS_REACTIVE */]);
+  }
   function reactive(target) {
     if (!isObject(target)) {
       return;
@@ -244,6 +347,87 @@ var VueRuntimeDOM = (() => {
   }
   function toRaw(observed) {
     return observed && toRaw(observed["__v_raw" /* RAW */]) || observed;
+  }
+
+  // packages/reactivity/src/computed.ts
+  var ComputedRefImpl = class {
+    constructor(getter, setter) {
+      this.setter = setter;
+      this._dirty = true;
+      this.__v_isReadonly = true;
+      this.__v_isRef = true;
+      this.dep = /* @__PURE__ */ new Set();
+      this.effect = new ReactiveEffect(getter, () => {
+        if (!this._dirty) {
+          this._dirty = true;
+          triggerEffect(this.dep);
+        }
+      });
+    }
+    get value() {
+      trackEffect(this.dep);
+      if (this._dirty) {
+        this._dirty = false;
+        this._value = this.effect.run();
+      }
+      return this._value;
+    }
+    set value(newValue) {
+      this.setter(newValue);
+    }
+  };
+  var computed = (getterOrOptions) => {
+    let onlyGetter = isFunction(getterOrOptions);
+    let getter, setter;
+    if (onlyGetter) {
+      getter = getterOrOptions;
+      setter = () => {
+        console.warn("no set");
+      };
+    } else {
+      getter = getterOrOptions.get;
+      setter = getterOrOptions.set;
+    }
+    return new ComputedRefImpl(getter, setter);
+  };
+
+  // packages/reactivity/src/watch.ts
+  function traversal(value, set = /* @__PURE__ */ new Set()) {
+    if (!isObject(value))
+      return value;
+    if (set.has(value)) {
+      return value;
+    }
+    set.add(value);
+    for (let key in value) {
+      traversal(value[key], set);
+    }
+    return value;
+  }
+  function watch(source, cb) {
+    let getter;
+    if (isReactive(source)) {
+      getter = () => traversal(source);
+    } else if (isFunction(source)) {
+      getter = source;
+    } else {
+      return;
+    }
+    let cleanup;
+    const onCleanup = (fn) => {
+      cleanup = fn;
+    };
+    let oldValue;
+    const job = () => {
+      if (cleanup) {
+        cleanup();
+      }
+      const newValue = effect2.run();
+      cb(newValue, oldValue, onCleanup);
+      oldValue = newValue;
+    };
+    const effect2 = new ReactiveEffect(getter, job);
+    oldValue = effect2.run();
   }
 
   // packages/runtime-core/src/sequence.ts
@@ -393,6 +577,8 @@ var VueRuntimeDOM = (() => {
   }
 
   // packages/runtime-core/src/component.ts
+  var currentInstance = null;
+  var setCurrentInstance = (instance) => currentInstance = instance;
   function createComponentInstance(vnode) {
     const instance = {
       data: null,
@@ -411,7 +597,8 @@ var VueRuntimeDOM = (() => {
     return instance;
   }
   var publicPropertyMap = {
-    $attrs: (i) => i.attrs
+    $attrs: (i) => i.attrs,
+    $slots: (i) => i.slots
   };
   var publicInstanceProxy = {
     get(target, key) {
@@ -441,9 +628,15 @@ var VueRuntimeDOM = (() => {
       return true;
     }
   };
+  function initSlots(instance, children) {
+    if (instance.vnode.shapeFlag & 32 /* SLOTS_CHILDREN */) {
+      instance.slots = children;
+    }
+  }
   function setupComponent(instance) {
-    let { props, type } = instance.vnode;
+    let { props, type, children } = instance.vnode;
     initProps(instance, props);
+    initSlots(instance, children);
     instance.proxy = new Proxy(instance, publicInstanceProxy);
     let data = type.data;
     if (data) {
@@ -451,7 +644,28 @@ var VueRuntimeDOM = (() => {
         return console.warn("data option must be a function");
       instance.data = reactive(data.call(instance.proxy));
     }
-    instance.render = type.render;
+    let setup = type.setup;
+    if (setup) {
+      const setupContext = {
+        emit: (event, ...args) => {
+          const eventName = `on${event[0].toUpperCase() + event.slice(1)}`;
+          const handler = instance.vnode.props(eventName);
+          handler && handler(...args);
+        },
+        slots: instance.slots
+      };
+      setCurrentInstance(instance);
+      const setupResult = setup(instance.props, setupContext);
+      setCurrentInstance(null);
+      if (isFunction(setupResult)) {
+        instance.render = setupResult;
+      } else if (isObject(setupResult)) {
+        instance.setupState = proxyRefs(setupResult);
+      }
+    }
+    if (!instance.render) {
+      instance.render = type.render;
+    }
   }
 
   // packages/runtime-core/src/renderer.ts
@@ -662,18 +876,31 @@ var VueRuntimeDOM = (() => {
       const { render: render3 } = instance;
       const componenUpdateFn = () => {
         if (!instance.isMounted) {
-          const subTree = render3.call(instance.proxy);
+          let { bm, m } = instance;
+          if (bm) {
+            invokeArrayFns(bm);
+          }
+          const subTree = render3.call(instance.proxy, instance.proxy);
           patch(null, subTree, container, anchor);
+          if (m) {
+            invokeArrayFns(m);
+          }
           instance.subTree = subTree;
           instance.isMounted = true;
         } else {
-          let { next } = instance;
+          let { next, bu, u } = instance;
           if (next) {
             updateComponentPreRender(instance, next);
           }
-          const subTree = render3.call(instance.proxy);
+          if (bu) {
+            invokeArrayFns(bu);
+          }
+          const subTree = render3.call(instance.proxy, instance.proxy);
           patch(instance.subTree, subTree, container, anchor);
           instance.subTree = subTree;
+          if (u) {
+            invokeArrayFns(u);
+          }
         }
       };
       const effect2 = new ReactiveEffect(componenUpdateFn, () => queueJon(instance.update));
@@ -767,6 +994,32 @@ var VueRuntimeDOM = (() => {
       return createVnode(type, propsChildren, children);
     }
   }
+
+  // packages/runtime-core/src/apiLifeCycle.ts
+  var LifecycleHooks = /* @__PURE__ */ ((LifecycleHooks2) => {
+    LifecycleHooks2["BEFORE_MOUNT"] = "bm";
+    LifecycleHooks2["MOUNTED"] = "m";
+    LifecycleHooks2["BEFORE_UPDATE"] = "bu";
+    LifecycleHooks2["UPDATED"] = "u";
+    return LifecycleHooks2;
+  })(LifecycleHooks || {});
+  function createHook(type) {
+    return (hook, target = currentInstance) => {
+      if (target) {
+        const hooks = target[type] || (target[type] = []);
+        const wrappedHook = () => {
+          setCurrentInstance(target);
+          hook();
+          setCurrentInstance(null);
+        };
+        hooks.push(wrappedHook);
+      }
+    };
+  }
+  var onBeforeMount = createHook("bm" /* BEFORE_MOUNT */);
+  var onMounted = createHook("m" /* MOUNTED */);
+  var onBeforeUpdate = createHook("bu" /* BEFORE_UPDATE */);
+  var onUpdated = createHook("u" /* UPDATED */);
 
   // packages/runtime-dom/src/nodeOps.ts
   var nodeOps = {

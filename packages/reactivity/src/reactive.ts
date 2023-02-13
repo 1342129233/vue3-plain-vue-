@@ -27,7 +27,6 @@ export function reactive(target) {
     }
 
     let exisitingProxy = reactiveMap.get(target);
-    
     if(exisitingProxy) {
         return exisitingProxy;
     }

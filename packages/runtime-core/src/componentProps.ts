@@ -31,7 +31,7 @@ export const hasPropsChanged = (prevProps = {}, nextProps = {}) => {
         return true
     }
 
-    // 比对属性对应的值是否一致
+    // 比对属性对应的值是否一致{a:{xxx:xxx}} {a:{qqq:qq}}
     for(let i = 0; i < nextKeys.length; i++) {
         const key = nextKeys[i];
         if(nextProps[key] !== prevProps[key]) {

@@ -2,6 +2,12 @@ import { isFunction, isObject } from '@vue/shared';
 import { ReactiveEffect } from './effect';
 import { isReactive } from './reactive';
 
+/**
+ * @param value 
+ * @param set 考虑循环饮用的问题
+ * @returns 
+ */
+
 // value 考虑循环引用的问题
 function traversal(value, set = new Set()) {
     // 递归要有终结条件,不是对象就不在递归
@@ -16,6 +22,12 @@ function traversal(value, set = new Set()) {
     }
     return value;
 }
+
+/**
+ * @param source 用户传递的对象
+ * @param cb 
+ * @returns 
+ */
 
 // source 是用户传入的对象
 // cb 是用户的回调

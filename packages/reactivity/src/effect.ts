@@ -40,6 +40,7 @@ export class ReactiveEffect {
 }
 
 export function effect(fn, options:any = {}) {
+
     const _effect = new ReactiveEffect(fn, options.scheduler);
     _effect.run();
 
@@ -53,7 +54,7 @@ export function effect(fn, options:any = {}) {
 
 const targetMap = new WeakMap();
 export function track(target, get, key) {
-    key = String(key)
+    key = String(key);
     if(!activeEffect) return;
     let depsMap = targetMap.get(target);
     if(!depsMap) {
