@@ -19,7 +19,7 @@ import { createVnode, isVnode } from './vnode'
  * @param propsChildren   放属性
  * @param children  放儿子
  */
-export function h(type, propsChildren, children) {
+export function h(type, propsChildren = null, children = null) {
   let l = arguments.length
   // h('div',{style:{"color"：“red”}})
   // h('div',h('span'))
