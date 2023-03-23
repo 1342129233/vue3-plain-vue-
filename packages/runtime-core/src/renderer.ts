@@ -496,7 +496,7 @@ export function createRenderer(renderOptions) {
     // 处理组件
     const processComponent = (n1, n2, container, anchor = null, parentComponent) => { // 统一处理组件，判断是普通的还是函数式的
         if(n1 === null) {
-            if (n2.shapeFlag & ShapeFlags.COMPONENT_KEPT_ALIVE) {
+            if (n2.shapeFlag & ShapeFlags.COMPONENT_KEPT_ALIVE) { // keep-alive组件时:假设my1->my2->my1;
                 // keep-alive组件的挂载;
                 parentComponent.ctx.activate(n2, container, anchor)
             } else {
