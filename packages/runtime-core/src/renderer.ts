@@ -6,6 +6,7 @@ import { createVnode, Text, isSameVnode, Fragment } from './vnode';
 import { queueJon } from './scheduler';
 import { updateProps, hasPropsChanged } from './componentProps';
 import { createComponentInstance, setupComponent, renderComponent } from './component';
+import { isKeepAlive } from "./components/KeepAlive";
 
 export function createRenderer(renderOptions) {
     let {
@@ -382,15 +383,15 @@ export function createRenderer(renderOptions) {
     const mountComponent = (vnode, container, anchor, parentComponent) => {
         // 1) 要创造一个组件的实例
         let instance = (vnode.component = createComponentInstance(vnode, parentComponent));
-        // 对 KeepAlive 处理 
-        // if (isKeepAlive(vnode)) {
-        //     instance.ctx.renderer = {
-        //       createElement: hostCreateElement,//创建元素用这个方法;
-        //       move(vnode: RenderVNode, container: RenderContainer) {//move的vnode肯定是组件;
-        //         hostInsert(vnode.component.subTree.el, container)
-        //       }
-        //     }
-        // }
+        // 对 KeepAlive 处理 (Keeplive 组件 mount 时挂载 renderer 到 ctx 上)
+        if (isKeepAlive(vnode)) {
+            (instance.ctx as any).renderer = {
+                createElement: hostCreateElement,//创建元素用这个方法;
+                move(vnode, container) {//move的vnode肯定是组件;
+                    hostInsert(vnode.component.subTree.el, container)
+                }
+            }
+        }
         // 2) 给实例上赋值
         setupComponent(instance);
         // 3) 创建一个 effect
@@ -496,6 +497,7 @@ export function createRenderer(renderOptions) {
     // 处理组件
     const processComponent = (n1, n2, container, anchor = null, parentComponent) => { // 统一处理组件，判断是普通的还是函数式的
         if(n1 === null) {
+            // COMPONENT_KEPT_ALIVE 标志,组件挂载的时候告诉渲染器这个不需要 mount 而是需要特殊处理
             if (n2.shapeFlag & ShapeFlags.COMPONENT_KEPT_ALIVE) { // keep-alive组件时:假设my1->my2->my1;
                 // keep-alive组件的挂载;
                 parentComponent.ctx.activate(n2, container, anchor)
@@ -563,6 +565,8 @@ export function createRenderer(renderOptions) {
         } else if(vnode.shapeFlag & ShapeFlags.COMPONENT_SHOULD_KEEP_ALIVE) {
             // 直接把虚拟节点传递给keep-alive组件中删除的方法;
             // 进入这个 if 分支里,parentComponent必定为 keep-alive 组件; vnode为插槽;
+            // 在 KeepAlive 组件渲染时会对子组件增加 COMPONENT_SHOULD_KEEP_ALIVE 标志
+            // 然后在子组件卸载时并不会真实的卸载而是调用 KeepAlive 的 deactivate 方法
             return parentComponent.ctx.deactivate(vnode);
         } else if (vnode.shapeFlag & ShapeFlags.COMPONENT) {
             // 如果是 vnode 的话,就移除组件的真实节点;

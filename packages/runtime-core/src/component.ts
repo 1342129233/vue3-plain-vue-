@@ -3,8 +3,11 @@ import { initProps } from "./componentProps";
 import { ShapeFlags, hasOwn, isFunction, isObject } from "@vue/shared";
 // import { RenderVNode, VueInstance } from "./renderer";
 
-export let currentInstance = null
-export const setCurrentInstance = (instance) => (currentInstance = instance)
+// `当前执行vue组件实例`;
+export let currentInstance = null;
+// 设置一个vue组件实例为`当前执行vue组件实例`;
+export const setCurrentInstance = (instance) => (currentInstance = instance);
+// 获取`当前执行vue组件实例`;
 export const getCurrentInstance = () => currentInstance
 
 // 1. 要创造一个组件的实例
@@ -113,12 +116,12 @@ export function setupComponent(instance) {
                 handler && handler(...args)
             },
             attrs: instance.attrs,
-            slots: instance.slots
+            slots: instance.slots,
         };
         setCurrentInstance(instance)
         // 调用 setup() 时必定知道当前实例是谁
         // 而钩子函数需要用到当前实例
-        const setupResult = setup(instance.props, setupContext);
+        const setupResult = setup(instance.props, setupContext); // callWithErrorHandling
         setCurrentInstance(null)
 
         if(isFunction(setupResult)) {
@@ -127,6 +130,8 @@ export function setupComponent(instance) {
             // 对内部的 ref 进行取消 .value
             instance.setupState = proxyRefs(setupResult)
         }
+
+        
     }
 
     // 依旧没新建 render, 便直接取实例虚拟节点上的 render()
