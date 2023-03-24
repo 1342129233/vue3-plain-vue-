@@ -15,5 +15,5 @@ export * from './apiLifeCycle'
 // Vue组件相关api;
 export * from './component'
 
-//依赖注入相关api;
-export * from './apilnject'
+// 依赖注入相关api;
+export * from './apiInject'
